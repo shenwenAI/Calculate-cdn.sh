@@ -403,10 +403,10 @@
       document.getElementById('btn-en').classList.toggle('active', lang === 'en');
       document.documentElement.lang = lang === 'cn' ? 'zh-CN' : 'en';
 
-      // Update all data-i18n elements
+      // Update only leaf data-i18n elements (those without child elements)
       document.querySelectorAll('[data-i18n]').forEach(function (el) {
         var key = el.getAttribute('data-i18n');
-        if (I18N[lang] && I18N[lang][key]) {
+        if (I18N[lang] && I18N[lang][key] && el.children.length === 0) {
           el.textContent = I18N[lang][key];
         }
       });
@@ -500,14 +500,14 @@
       html += '  <div class="ip-display">';
       html += '    <div class="ip-value">' + escapeHtml(val(ipData.ip)) + '</div>';
       html += '    <div class="ip-version">' + escapeHtml(val(ipData.ip_version)) + ' &mdash; ';
-      html += '      <span class="status-badge ok">' + t('connected') + '</span>';
+      html += '      <span class="status-badge ok">' + escapeHtml(t('connected')) + '</span>';
       html += '    </div>';
       html += '  </div>';
       html += '</div>';
 
       // Location Card
       html += '<div class="card">';
-      html += '  <h2>' + t('location_title') + '</h2>';
+      html += '  <h2>' + escapeHtml(t('location_title')) + '</h2>';
       html += '  <div class="info-grid">';
       html += infoItem(t('country'), val(loc.country));
       html += infoItem(t('region'), val(loc.region));
@@ -522,7 +522,7 @@
 
       // CDN Card
       html += '<div class="card">';
-      html += '  <h2>' + t('cdn_title') + '</h2>';
+      html += '  <h2>' + escapeHtml(t('cdn_title')) + '</h2>';
       html += '  <div class="info-grid">';
       html += infoItem(t('colo'), val(cdn.colo));
       html += infoItem(t('asn'), val(cdn.asn));
@@ -535,23 +535,34 @@
       // Latency Card
       var color = getLatencyColor(latency);
       html += '<div class="card">';
-      html += '  <h2>' + t('latency_title') + '</h2>';
+      html += '  <h2>' + escapeHtml(t('latency_title')) + '</h2>';
       html += '  <div class="info-grid">';
       html += infoItem(t('latency'), latency + ' ms');
       html += infoItem(t('server_colo'), val(cdnData.colo));
       html += '  </div>';
       html += '  <div class="latency-bar">';
-      html += '    <div class="bar-bg"><div class="bar-fill" style="width:' + getLatencyWidth(latency) + ';background:' + color + '"></div></div>';
-      html += '    <div class="latency-text" style="color:' + color + '">' + latency + ' ms</div>';
+      html += '    <div class="bar-bg"><div class="bar-fill" id="latency-fill"></div></div>';
+      html += '    <div class="latency-text" id="latency-text">' + latency + ' ms</div>';
       html += '  </div>';
       html += '</div>';
 
       // Refresh
       html += '<div class="actions">';
-      html += '  <button class="btn" onclick="detect()">🔄 ' + t('refresh_btn') + '</button>';
+      html += '  <button class="btn" onclick="detect()">🔄 ' + escapeHtml(t('refresh_btn')) + '</button>';
       html += '</div>';
 
       document.getElementById('result-area').innerHTML = html;
+
+      // Apply latency bar styles via DOM (avoid inline style string concatenation)
+      var fillEl = document.getElementById('latency-fill');
+      var textEl = document.getElementById('latency-text');
+      if (fillEl) {
+        fillEl.style.width = getLatencyWidth(latency);
+        fillEl.style.background = color;
+      }
+      if (textEl) {
+        textEl.style.color = color;
+      }
     }
 
     function infoItem(label, value) {
