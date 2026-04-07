@@ -1,0 +1,20 @@
+name = "shenwencdn"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+# KV 命名空间绑定
+# 运行以下命令创建 KV: wrangler kv:namespace create "NODES_KV"
+# 然后将返回的 ID 填入下方
+[[kv_namespaces]]
+binding = "NODES_KV"
+id = "YOUR_KV_NAMESPACE_ID_HERE"
+
+# 可选：自定义域名
+# routes = [
+#   { pattern = "shenwencdn.578388.xyz", custom_domain = true }
+# ]
+
+# 日志配置
+[observability]
+enabled = true
+head_sampling_rate = 1
