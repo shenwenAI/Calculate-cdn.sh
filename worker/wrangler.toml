@@ -1,0 +1,7 @@
+name = "calculate-cdn-worker"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+# 部署后请替换为你的自定义域名或 Workers 路由
+# [env.production]
+# routes = [{ pattern = "cdn-api.example.com/*", zone_name = "example.com" }]

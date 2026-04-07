@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CDN 检测工具 / CDN Detection Tool</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --accent: #38bdf8;
+      --green: #4ade80;
+      --yellow: #facc15;
+      --red: #f87171;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    header h1 {
+      font-size: 1.8rem;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    header p {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+    }
+
+    .lang-switch {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .lang-switch button {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      padding: 6px 16px;
+      margin: 0 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+
+    .lang-switch button.active {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .card h2 {
+      font-size: 1.15rem;
+      color: var(--accent);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 600px) {
+      .info-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .info-item {
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 12px 16px;
+    }
+
+    .info-item .label {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .info-item .value {
+      font-size: 1.05rem;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .ip-display {
+      text-align: center;
+      padding: 20px;
+    }
+
+    .ip-display .ip-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--green);
+      font-family: 'Courier New', monospace;
+      margin-bottom: 6px;
+      word-break: break-all;
+    }
+
+    .ip-display .ip-version {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .latency-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .latency-bar .bar-bg {
+      flex: 1;
+      height: 8px;
+      background: var(--bg);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .latency-bar .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.5s ease;
+    }
+
+    .latency-bar .latency-text {
+      font-size: 0.9rem;
+      min-width: 70px;
+      text-align: right;
+    }
+
+    .btn {
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      font-weight: 600;
+      transition: opacity 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      opacity: 0.85;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .actions {
+      text-align: center;
+      margin-top: 24px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-secondary);
+    }
+
+    .loading .spinner {
+      display: inline-block;
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .error-msg {
+      background: rgba(248,113,113,0.1);
+      border: 1px solid var(--red);
+      border-radius: 8px;
+      padding: 16px;
+      color: var(--red);
+      text-align: center;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .status-badge.ok {
+      background: rgba(74,222,128,0.15);
+      color: var(--green);
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 30px;
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+    }
+
+    .footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .config-section {
+      margin-bottom: 20px;
+    }
+
+    .config-section label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .config-section input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-family: 'Courier New', monospace;
+    }
+
+    .config-section input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🌐 <span data-i18n="title">CDN 检测工具</span></h1>
+      <p data-i18n="subtitle">检测您的 IP 地址、地理位置和 CDN 节点信息</p>
+    </header>
+
+    <div class="lang-switch">
+      <button id="btn-cn" class="active" onclick="switchLang('cn')">中文</button>
+      <button id="btn-en" onclick="switchLang('en')">English</button>
+    </div>
+
+    <!-- Worker API 配置 -->
+    <div class="card config-section">
+      <label data-i18n="api_label">Worker API 地址（部署后填入你的 Worker URL）：</label>
+      <input type="text" id="api-url" placeholder="https://your-worker.your-subdomain.workers.dev">
+    </div>
+
+    <div class="actions" style="margin-bottom:24px">
+      <button class="btn" id="detect-btn" onclick="detect()">
+        🔍 <span data-i18n="detect_btn">开始检测</span>
+      </button>
+    </div>
+
+    <div id="result-area"></div>
+
+    <div class="footer">
+      <p>Calculate-cdn.sh &mdash; <span data-i18n="author_credit">作者：shc</span></p>
+      <p><a href="https://github.com/shenwenAI/Calculate-cdn.sh" target="_blank">GitHub</a></p>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // 多语言文本
+    // ============================================================
+    const I18N = {
+      cn: {
+        title: 'CDN 检测工具',
+        subtitle: '检测您的 IP 地址、地理位置和 CDN 节点信息',
+        api_label: 'Worker API 地址（部署后填入你的 Worker URL）：',
+        detect_btn: '开始检测',
+        detecting: '正在检测...',
+        your_ip: '您的 IP 地址',
+        ip_version: 'IP 版本',
+        location_title: '📍 地理位置信息',
+        country: '国家/地区',
+        region: '省份/州',
+        city: '城市',
+        timezone: '时区',
+        latitude: '纬度',
+        longitude: '经度',
+        postal_code: '邮政编码',
+        continent: '大洲',
+        cdn_title: '⚡ CDN 节点信息',
+        colo: '数据中心',
+        asn: 'ASN',
+        as_org: '运营商',
+        http_proto: 'HTTP 协议',
+        tls_ver: 'TLS 版本',
+        latency_title: '📊 延迟测试',
+        latency: '往返延迟',
+        server_colo: '响应节点',
+        status: '状态',
+        connected: '已连接',
+        error_no_url: '请先填写 Worker API 地址',
+        error_fetch: '请求失败，请检查 API 地址是否正确',
+        na: '不可用',
+        author_credit: '作者：shc',
+        refresh_btn: '重新检测',
+        user_agent: '浏览器标识',
+      },
+      en: {
+        title: 'CDN Detection Tool',
+        subtitle: 'Detect your IP address, geolocation and CDN node info',
+        api_label: 'Worker API URL (enter your Worker URL after deployment):',
+        detect_btn: 'Start Detection',
+        detecting: 'Detecting...',
+        your_ip: 'Your IP Address',
+        ip_version: 'IP Version',
+        location_title: '📍 Geolocation',
+        country: 'Country',
+        region: 'Region',
+        city: 'City',
+        timezone: 'Timezone',
+        latitude: 'Latitude',
+        longitude: 'Longitude',
+        postal_code: 'Postal Code',
+        continent: 'Continent',
+        cdn_title: '⚡ CDN Node Info',
+        colo: 'Data Center',
+        asn: 'ASN',
+        as_org: 'ISP / Organization',
+        http_proto: 'HTTP Protocol',
+        tls_ver: 'TLS Version',
+        latency_title: '📊 Latency Test',
+        latency: 'Round-trip Latency',
+        server_colo: 'Response Node',
+        status: 'Status',
+        connected: 'Connected',
+        error_no_url: 'Please enter the Worker API URL first',
+        error_fetch: 'Request failed. Please check if the API URL is correct',
+        na: 'N/A',
+        author_credit: 'Author: shc',
+        refresh_btn: 'Test Again',
+        user_agent: 'User Agent',
+      },
+    };
+
+    let currentLang = 'cn';
+
+    function t(key) {
+      return (I18N[currentLang] && I18N[currentLang][key]) || key;
+    }
+
+    function switchLang(lang) {
+      currentLang = lang;
+      document.getElementById('btn-cn').classList.toggle('active', lang === 'cn');
+      document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+      document.documentElement.lang = lang === 'cn' ? 'zh-CN' : 'en';
+
+      // Update only leaf data-i18n elements (those without child elements)
+      document.querySelectorAll('[data-i18n]').forEach(function (el) {
+        var key = el.getAttribute('data-i18n');
+        if (I18N[lang] && I18N[lang][key] && el.children.length === 0) {
+          el.textContent = I18N[lang][key];
+        }
+      });
+    }
+
+    // ============================================================
+    // 检测逻辑
+    // ============================================================
+    async function detect() {
+      var apiUrl = document.getElementById('api-url').value.trim();
+      if (!apiUrl) {
+        showError(t('error_no_url'));
+        return;
+      }
+
+      // Remove trailing slash
+      apiUrl = apiUrl.replace(/\/+$/, '');
+
+      var btn = document.getElementById('detect-btn');
+      btn.disabled = true;
+      btn.querySelector('[data-i18n]').textContent = t('detecting');
+
+      showLoading();
+
+      try {
+        // Fetch IP info and CDN test in parallel
+        var ipUrl = apiUrl + '/api/ip';
+        var cdnUrl = apiUrl + '/api/cdn-test';
+
+        var startTime = performance.now();
+        var responses = await Promise.all([
+          fetch(ipUrl),
+          fetch(cdnUrl),
+        ]);
+        var endTime = performance.now();
+
+        var latency = Math.round(endTime - startTime);
+
+        var ipData = await responses[0].json();
+        var cdnData = await responses[1].json();
+
+        renderResult(ipData, cdnData, latency);
+      } catch (err) {
+        showError(t('error_fetch') + ' (' + err.message + ')');
+      } finally {
+        btn.disabled = false;
+        btn.querySelector('[data-i18n]').textContent = t('detect_btn');
+      }
+    }
+
+    function showLoading() {
+      document.getElementById('result-area').innerHTML =
+        '<div class="loading"><div class="spinner"></div><p>' + t('detecting') + '</p></div>';
+    }
+
+    function showError(msg) {
+      document.getElementById('result-area').innerHTML =
+        '<div class="error-msg">❌ ' + escapeHtml(msg) + '</div>';
+    }
+
+    function escapeHtml(str) {
+      var div = document.createElement('div');
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+
+    function val(v) {
+      return v || t('na');
+    }
+
+    function getLatencyColor(ms) {
+      if (ms < 100) return 'var(--green)';
+      if (ms < 300) return 'var(--yellow)';
+      return 'var(--red)';
+    }
+
+    function getLatencyWidth(ms) {
+      // Scale: 0-500ms maps to 0-100%
+      var pct = Math.min(100, (ms / 500) * 100);
+      return pct + '%';
+    }
+
+    function renderResult(ipData, cdnData, latency) {
+      var loc = ipData.location || {};
+      var cdn = ipData.cdn || {};
+
+      var html = '';
+
+      // IP Card
+      html += '<div class="card">';
+      html += '  <div class="ip-display">';
+      html += '    <div class="ip-value">' + escapeHtml(val(ipData.ip)) + '</div>';
+      html += '    <div class="ip-version">' + escapeHtml(val(ipData.ip_version)) + ' &mdash; ';
+      html += '      <span class="status-badge ok">' + escapeHtml(t('connected')) + '</span>';
+      html += '    </div>';
+      html += '  </div>';
+      html += '</div>';
+
+      // Location Card
+      html += '<div class="card">';
+      html += '  <h2>' + escapeHtml(t('location_title')) + '</h2>';
+      html += '  <div class="info-grid">';
+      html += infoItem(t('country'), val(loc.country));
+      html += infoItem(t('region'), val(loc.region));
+      html += infoItem(t('city'), val(loc.city));
+      html += infoItem(t('timezone'), val(loc.timezone));
+      html += infoItem(t('continent'), val(loc.continent));
+      html += infoItem(t('latitude'), val(loc.latitude));
+      html += infoItem(t('longitude'), val(loc.longitude));
+      html += infoItem(t('postal_code'), val(loc.postal_code));
+      html += '  </div>';
+      html += '</div>';
+
+      // CDN Card
+      html += '<div class="card">';
+      html += '  <h2>' + escapeHtml(t('cdn_title')) + '</h2>';
+      html += '  <div class="info-grid">';
+      html += infoItem(t('colo'), val(cdn.colo));
+      html += infoItem(t('asn'), val(cdn.asn));
+      html += infoItem(t('as_org'), val(cdn.as_organization));
+      html += infoItem(t('http_proto'), val(cdn.http_protocol));
+      html += infoItem(t('tls_ver'), val(cdn.tls_version));
+      html += '  </div>';
+      html += '</div>';
+
+      // Latency Card
+      var color = getLatencyColor(latency);
+      html += '<div class="card">';
+      html += '  <h2>' + escapeHtml(t('latency_title')) + '</h2>';
+      html += '  <div class="info-grid">';
+      html += infoItem(t('latency'), latency + ' ms');
+      html += infoItem(t('server_colo'), val(cdnData.colo));
+      html += '  </div>';
+      html += '  <div class="latency-bar">';
+      html += '    <div class="bar-bg"><div class="bar-fill" id="latency-fill"></div></div>';
+      html += '    <div class="latency-text" id="latency-text">' + latency + ' ms</div>';
+      html += '  </div>';
+      html += '</div>';
+
+      // Refresh
+      html += '<div class="actions">';
+      html += '  <button class="btn" onclick="detect()">🔄 ' + escapeHtml(t('refresh_btn')) + '</button>';
+      html += '</div>';
+
+      document.getElementById('result-area').innerHTML = html;
+
+      // Apply latency bar styles via DOM (avoid inline style string concatenation)
+      var fillEl = document.getElementById('latency-fill');
+      var textEl = document.getElementById('latency-text');
+      if (fillEl) {
+        fillEl.style.width = getLatencyWidth(latency);
+        fillEl.style.background = color;
+      }
+      if (textEl) {
+        textEl.style.color = color;
+      }
+    }
+
+    function infoItem(label, value) {
+      return '<div class="info-item"><div class="label">' + escapeHtml(label) + '</div><div class="value">' + escapeHtml(value) + '</div></div>';
+    }
+  </script>
+</body>
+</html>
