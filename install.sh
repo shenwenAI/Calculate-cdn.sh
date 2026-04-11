@@ -228,15 +228,34 @@ get_text() {
 # ============================================================
 # 变量
 # ============================================================
-HAS_PUBLIC_IP=0
+HAS_PUBLIC_IPV4=0
+HAS_PUBLIC_IPV6=0
 HAS_GPU=0
+HAS_CPU_COMPUTE=0
 GPU_VRAM=0
-PUBLIC_IP=""
+PUBLIC_IPV4=""
+PUBLIC_IPV6=""
 INSTALL_MODE=""
 ADMIN_TOKEN=""
 MODEL_URL=""
 CDN_PORT=8080
 API_PORT=11434
+# 主域名和备用域名
+PAGE_URL="https://shenwenpage.578388.xyz"
+PAGE_URL_BACKUP="https://shenwenpage.pages.dev"
+CDN_API_URL="https://shenwencdn.578388.xyz"
+
+# CDN API 返回的信息
+CDN_COLO=""
+CDN_ASN=""
+CDN_ORG=""
+CDN_HTTP_PROTOCOL=""
+CDN_TLS_VERSION=""
+GEO_COUNTRY=""
+GEO_REGION=""
+GEO_CITY=""
+GEO_LATITUDE=""
+GEO_LONGITUDE=""
 
 # ============================================================
 # 检查依赖
@@ -250,33 +269,128 @@ check_dependencies() {
 }
 
 # ============================================================
-# 检测公网 IP
+# 查询 CDN API 获取详细信息 (支持备用域名)
+# ============================================================
+query_cdn_api() {
+    echo -e "\n${CYAN}Querying CDN API...${NC}"
+
+    local api_response=""
+    local used_url=""
+
+    # 尝试主域名
+    echo -e "${CYAN}  Trying: $CDN_API_URL${NC}"
+    api_response=$(curl -s --max-time 10 "$CDN_API_URL/api/ip" 2>/dev/null)
+
+    if [ -z "$api_response" ] || ! echo "$api_response" | grep -q "ip"; then
+        # 尝试备用API
+        local backup_url="https://shenwencdn.pages.dev"
+        echo -e "${YELLOW}  Trying backup: $backup_url${NC}"
+        api_response=$(curl -s --max-time 10 "$backup_url/api/ip" 2>/dev/null)
+        if [ -n "$api_response" ] && echo "$api_response" | grep -q "ip"; then
+            used_url="$backup_url"
+            CDN_API_URL="$backup_url"
+        fi
+    else
+        used_url="$CDN_API_URL"
+    fi
+
+    if [ -n "$api_response" ] && echo "$api_response" | grep -q "ip"; then
+        # 解析 JSON 响应
+        CDN_COLO=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cdn',{}).get('colo',''))" 2>/dev/null || echo "")
+        CDN_ASN=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cdn',{}).get('asn',''))" 2>/dev/null || echo "")
+        CDN_ORG=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cdn',{}).get('as_organization',''))" 2>/dev/null || echo "")
+        CDN_HTTP_PROTOCOL=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cdn',{}).get('http_protocol',''))" 2>/dev/null || echo "")
+        CDN_TLS_VERSION=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cdn',{}).get('tls_version',''))" 2>/dev/null || echo "")
+        GEO_COUNTRY=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('location',{}).get('country',''))" 2>/dev/null || echo "")
+        GEO_REGION=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('location',{}).get('region',''))" 2>/dev/null || echo "")
+        GEO_CITY=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('location',{}).get('city',''))" 2>/dev/null || echo "")
+        GEO_LATITUDE=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('location',{}).get('latitude',''))" 2>/dev/null || echo "")
+        GEO_LONGITUDE=$(echo "$api_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('location',{}).get('longitude',''))" 2>/dev/null || echo "")
+
+        echo -e "${GREEN}  CDN Information fetched successfully${NC}"
+        echo -e "${CYAN}  ----------------------------------------${NC}"
+        echo -e "  ${GREEN}API: ${used_url}${NC}"
+        [ -n "$CDN_COLO" ] && echo -e "  ${GREEN}Colo: ${CDN_COLO}${NC}"
+        [ -n "$CDN_ASN" ] && echo -e "  ${GREEN}ASN: ${CDN_ASN}${NC}"
+        [ -n "$CDN_ORG" ] && echo -e "  ${GREEN}ISP: ${CDN_ORG}${NC}"
+        [ -n "$GEO_COUNTRY" ] && echo -e "  ${GREEN}Location: ${GEO_COUNTRY} ${GEO_REGION} ${GEO_CITY}${NC}"
+        [ -n "$CDN_HTTP_PROTOCOL" ] && echo -e "  ${GREEN}HTTP: ${CDN_HTTP_PROTOCOL} | TLS: ${CDN_TLS_VERSION}${NC}"
+        echo -e "${CYAN}  ----------------------------------------${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}  Failed to query CDN API${NC}"
+        return 1
+    fi
+}
+
+# ============================================================
+# 检测公网 IP (IPv4 + IPv6 双栈)
 # ============================================================
 detect_public_ip() {
     echo -e "\n${YELLOW}$(get_text detecting_ip)${NC}"
 
-    # 尝试多个IP检测服务
-    local ips=()
+    # 检测 IPv4
+    echo -e "\n${CYAN}  --- IPv4 ---${NC}"
 
-    if PUBLIC_IP=$(curl -s -4 --max-time 5 https://api.ipify.org 2>/dev/null); then
-        if [[ $PUBLIC_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            HAS_PUBLIC_IP=1
-            echo -e "${GREEN}  $(get_text public_ip): $PUBLIC_IP${NC}"
-            return 0
+    if PUBLIC_IPV4=$(curl -s -4 --max-time 5 https://api.ipify.org 2>/dev/null); then
+        if [[ $PUBLIC_IPV4 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            HAS_PUBLIC_IPV4=1
+            echo -e "${GREEN}    IPv4: $PUBLIC_IPV4${NC}"
         fi
     fi
 
-    if PUBLIC_IP=$(curl -s -4 --max-time 5 https://ifconfig.me 2>/dev/null); then
-        if [[ $PUBLIC_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            HAS_PUBLIC_IP=1
-            echo -e "${GREEN}  $(get_text public_ip): $PUBLIC_IP${NC}"
-            return 0
+    if [ $HAS_PUBLIC_IPV4 -eq 0 ]; then
+        if PUBLIC_IPV4=$(curl -s -4 --max-time 5 https://ifconfig.me 2>/dev/null); then
+            if [[ $PUBLIC_IPV4 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                HAS_PUBLIC_IPV4=1
+                echo -e "${GREEN}    IPv4: $PUBLIC_IPV4${NC}"
+            fi
         fi
     fi
 
-    echo -e "${YELLOW}  $(get_text no_public_ip)${NC}"
-    HAS_PUBLIC_IP=0
-    return 1
+    if [ $HAS_PUBLIC_IPV4 -eq 0 ]; then
+        echo -e "${YELLOW}    No IPv4 detected${NC}"
+    fi
+
+    # 检测 IPv6
+    echo -e "\n${CYAN}  --- IPv6 ---${NC}"
+
+    if PUBLIC_IPV6=$(curl -s -6 --max-time 5 https://api6.ipify.org 2>/dev/null); then
+        # 验证IPv6格式
+        if [[ $PUBLIC_IPV6 =~ ^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$ ]] || \
+           [[ $PUBLIC_IPV6 =~ ^::$ ]] || \
+           [[ $PUBLIC_IPV6 =~ ^::1$ ]]; then
+            HAS_PUBLIC_IPV6=1
+            echo -e "${GREEN}    IPv6: $PUBLIC_IPV6${NC}"
+        fi
+    fi
+
+    if [ $HAS_PUBLIC_IPV6 -eq 0 ]; then
+        if PUBLIC_IPV6=$(curl -s -6 --max-time 5 https://ifconfig.me 2>/dev/null); then
+            if [[ $PUBLIC_IPV6 =~ ^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$ ]] || \
+               [[ $PUBLIC_IPV6 =~ ^::$ ]]; then
+                HAS_PUBLIC_IPV6=1
+                echo -e "${GREEN}    IPv6: $PUBLIC_IPV6${NC}"
+            fi
+        fi
+    fi
+
+    if [ $HAS_PUBLIC_IPV6 -eq 0 ]; then
+        echo -e "${YELLOW}    No IPv6 detected${NC}"
+    fi
+
+    # 总结
+    echo -e "\n${CYAN}================================${NC}"
+    if [ $HAS_PUBLIC_IPV4 -eq 1 ]; then
+        echo -e "${GREEN}  IPv4: $PUBLIC_IPV4${NC}"
+    fi
+    if [ $HAS_PUBLIC_IPV6 -eq 1 ]; then
+        echo -e "${GREEN}  IPv6: $PUBLIC_IPV6${NC}"
+    fi
+    if [ $HAS_PUBLIC_IPV4 -eq 0 ] && [ $HAS_PUBLIC_IPV6 -eq 0 ]; then
+        echo -e "${YELLOW}  $(get_text no_public_ip)${NC}"
+    fi
+    echo -e "${CYAN}================================${NC}"
 }
 
 # ============================================================
@@ -290,41 +404,177 @@ detect_gpu() {
         if nvidia-smi &> /dev/null; then
             HAS_GPU=1
             GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
-            echo -e "${GREEN}  $(get_text gpu_detected)${NC}"
-            echo -e "${GREEN}  $(get_text vram): ${GPU_VRAM}MB${NC}"
+            echo -e "${GREEN}  [GPU] NVIDIA detected${NC}"
+            echo -e "${GREEN}  VRAM: ${GPU_VRAM}MB${NC}"
             return 0
         fi
     fi
 
-    # 检查 AMD GPU
+    # 检查 AMD GPU (ROCm)
     if command -v rocm-smi &> /dev/null; then
-        HAS_GPU=1
-        echo -e "${GREEN}  $(get_text gpu_detected) (AMD)${NC}"
-        return 0
+        if rocm-smi &> /dev/null; then
+            HAS_GPU=1
+            GPU_VRAM=$(rocm-smi --showmeminfo vram 2>/dev/null | grep -oP '\d+' | head -1 || echo "Unknown")
+            echo -e "${GREEN}  [GPU] AMD detected${NC}"
+            echo -e "${GREEN}  VRAM: ${GPU_VRAM}MB${NC}"
+            return 0
+        fi
+    fi
+
+    # 检查 Intel GPU
+    if command -v clinfo &> /dev/null; then
+        if clinfo 2>/dev/null | grep -i "intel" | grep -i "gpu" > /dev/null; then
+            HAS_GPU=1
+            GPU_VRAM="Shared"
+            echo -e "${GREEN}  [GPU] Intel GPU detected${NC}"
+            return 0
+        fi
     fi
 
     # 检查 Apple Silicon
     if command -v system_profiler &> /dev/null; then
         if system_profiler SPHardwareDataType 2>/dev/null | grep -q "Apple"; then
             HAS_GPU=1
-            echo -e "${GREEN}  Apple Silicon GPU detected${NC}"
+            GPU_VRAM="Unified"
+            echo -e "${GREEN}  [GPU] Apple Silicon detected${NC}"
             return 0
         fi
     fi
 
-    # 检查可用内存（作为备用算力指标）
-    local mem_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-    local mem_gb=$((mem_kb / 1024 / 1024))
-
-    if [ $mem_gb -ge 8 ]; then
-        echo -e "${YELLOW}  $(get_text memory): ${mem_gb}GB (CPU mode)${NC}"
-        # 有足够内存也可以运行CPU模式
-        return 0
-    fi
-
-    echo -e "${YELLOW}  $(get_text no_gpu)${NC}"
+    echo -e "${YELLOW}  No dedicated GPU detected${NC}"
     HAS_GPU=0
     return 1
+}
+
+# ============================================================
+# 检测 CPU/内存算力
+# ============================================================
+detect_cpu_compute() {
+    echo -e "\n${CYAN}  Checking CPU & Memory...${NC}"
+
+    # 获取 CPU 核心数
+    local cpu_cores=$(nproc 2>/dev/null || echo "0")
+
+    # 获取内存大小 (GB)
+    local mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    local mem_gb=$((mem_kb / 1024 / 1024))
+
+    echo "    CPU Cores: $cpu_cores"
+    echo "    Memory: ${mem_gb}GB"
+
+    # 判断标准：CPU >= 8核 且 内存 >= 4GB
+    if [ $cpu_cores -ge 8 ] && [ $mem_gb -ge 4 ]; then
+        echo -e "${GREEN}    [CPU Compute] Qualified${NC}"
+        HAS_CPU_COMPUTE=1
+        return 0
+    else
+        if [ $cpu_cores -lt 8 ]; then
+            echo -e "${YELLOW}    [CPU Compute] Not enough cores (need 8+)${NC}"
+        fi
+        if [ $mem_gb -lt 4 ]; then
+            echo -e "${YELLOW}    [CPU Compute] Not enough memory (need 4GB+)${NC}"
+        fi
+        HAS_CPU_COMPUTE=0
+        return 1
+    fi
+}
+
+# ============================================================
+# 综合检测算力
+# ============================================================
+detect_compute() {
+    echo -e "\n${YELLOW}Detecting compute capability...${NC}"
+    echo -e "${CYAN}================================${NC}"
+
+    # 检测 GPU
+    detect_gpu
+
+    # 如果没有 GPU，检测 CPU 算力
+    if [ $HAS_GPU -eq 0 ]; then
+        detect_cpu_compute
+    fi
+
+    # 综合判断
+    echo -e "\n${CYAN}================================${NC}"
+    if [ $HAS_GPU -eq 1 ]; then
+        echo -e "${GREEN}  [OK] GPU Compute Available${NC}"
+    elif [ $HAS_CPU_COMPUTE -eq 1 ]; then
+        echo -e "${GREEN}  [OK] CPU Compute Available${NC}"
+    else
+        echo -e "${YELLOW}  [X] No compute capability${NC}"
+    fi
+    echo -e "${CYAN}================================${NC}"
+}
+
+# ============================================================
+# 获取节点列表 (从 shenwenpage.578388.xyz, 支持备份域名)
+# ============================================================
+fetch_node_list() {
+    echo -e "\n${CYAN}Fetching CDN node list from $PAGE_URL...${NC}"
+
+    local node_data=""
+    local used_url=""
+
+    # 尝试主域名
+    echo -e "${CYAN}  Trying: $PAGE_URL${NC}"
+    node_data=$(curl -s --max-time 10 "$PAGE_URL/api/nodes" 2>/dev/null)
+
+    if [ -z "$node_data" ] || ! echo "$node_data" | grep -q "nodes"; then
+        # 尝试备用域名
+        echo -e "${YELLOW}  Trying backup: $PAGE_URL_BACKUP${NC}"
+        node_data=$(curl -s --max-time 10 "$PAGE_URL_BACKUP/api/nodes" 2>/dev/null)
+        if [ -n "$node_data" ] && echo "$node_data" | grep -q "nodes"; then
+            used_url="$PAGE_URL_BACKUP"
+        fi
+    else
+        used_url="$PAGE_URL"
+    fi
+
+    if [ -n "$node_data" ] && echo "$node_data" | grep -q "nodes"; then
+        echo -e "${GREEN}  Node list fetched successfully from ${used_url}${NC}"
+        echo "$node_data"
+    else
+        echo -e "${YELLOW}  Failed to fetch node list, using default${NC}"
+        echo "[]"
+    fi
+}
+
+# ============================================================
+# 注册本节点到网络 (支持备份域名)
+# ============================================================
+register_node() {
+    echo -e "\n${CYAN}Registering this node to network...${NC}"
+
+    local node_info=$(cat << EOF
+{
+    "node_id": "$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)",
+    "ipv4": "${PUBLIC_IPV4:-null}",
+    "ipv6": "${PUBLIC_IPV6:-null}",
+    "has_gpu": $HAS_GPU,
+    "has_cpu_compute": $HAS_CPU_COMPUTE,
+    "gpu_vram": "$GPU_VRAM",
+    "mode": "$INSTALL_MODE",
+    "port": $API_PORT,
+    "cdn_port": $CDN_PORT
+}
+EOF
+)
+
+    # 注册到主页面
+    echo -e "${CYAN}  Trying: $PAGE_URL${NC}"
+    local result=$(curl -s -X POST "$PAGE_URL/api/register" \
+        -H "Content-Type: application/json" \
+        -d "$node_info" 2>/dev/null || echo "failed")
+
+    if [ "$result" = "failed" ] || [ -z "$result" ]; then
+        # 尝试备用域名
+        echo -e "${YELLOW}  Trying backup: $PAGE_URL_BACKUP${NC}"
+        result=$(curl -s -X POST "$PAGE_URL_BACKUP/api/register" \
+            -H "Content-Type: application/json" \
+            -d "$node_info" 2>/dev/null || echo "failed")
+    fi
+
+    echo -e "${GREEN}  Node registered${NC}"
 }
 
 # ============================================================
@@ -338,35 +588,82 @@ determine_install_mode() {
 
     local mode_desc=""
 
-    if [ $HAS_PUBLIC_IP -eq 1 ] && [ $HAS_GPU -eq 1 ]; then
-        mode_desc="mode_cdn_full"
-    elif [ $HAS_PUBLIC_IP -eq 1 ]; then
-        mode_desc="mode_cdn_proxy"
-    elif [ $HAS_GPU -eq 1 ]; then
-        mode_desc="mode_compute"
-    else
-        mode_desc="mode_light"
+    # 判断是否有算力 (GPU 或 CPU+内存)
+    local has_compute=0
+    if [ $HAS_GPU -eq 1 ] || [ $HAS_CPU_COMPUTE -eq 1 ]; then
+        has_compute=1
     fi
 
-    echo -e "  ${GREEN}* $(get_text auto_detect): $(get_text $mode_desc)${NC}"
+    # 判断是否有公网IP
+    local has_public_ip=$((HAS_PUBLIC_IPV4 + HAS_PUBLIC_IPV6))
+
+    # 根据检测结果确定安装模式
+    # 规则:
+    # 1. 有算力 + 有公网IP → 完整CDN节点 (提供算力+转发)
+    # 2. 有算力 + 无公网IP → 计算节点 (只提供算力)
+    # 3. 无算力 + 有公网IP → CDN代理 (只做转发)
+    # 4. 都没有 → 轻量节点 (连接到其他CDN)
+    if [ $has_compute -eq 1 ] && [ $has_public_ip -ge 1 ]; then
+        mode_desc="mode_cdn_full"
+        echo -e "${GREEN}  Recommended: Full CDN Node (Compute + Public IP)${NC}"
+    elif [ $has_compute -eq 1 ]; then
+        mode_desc="mode_compute"
+        echo -e "${GREEN}  Recommended: Compute Node (No Public IP)${NC}"
+    elif [ $has_public_ip -ge 1 ]; then
+        mode_desc="mode_cdn_proxy"
+        echo -e "${GREEN}  Recommended: CDN Proxy Node (No Compute)${NC}"
+    else
+        mode_desc="mode_light"
+        echo -e "${YELLOW}  Recommended: Light Node (Relay Only)${NC}"
+    fi
+
     echo ""
-    echo "  1) $(get_text mode_cdn_full)"
-    echo "  2) $(get_text mode_cdn_proxy)"
-    echo "  3) $(get_text mode_compute)"
-    echo "  4) $(get_text mode_light)"
+    echo -e "${CYAN}  Installation Modes:${NC}"
+    echo "  1) Full CDN Node (算力+公网IP) - 完整节点"
+    echo "  2) Compute Node (算力, 无公网IP) - 计算节点"
+    echo "  3) CDN Proxy (公网IP, 无算力) - 代理节点"
+    echo "  4) Light Node (无算力, 无公网IP) - 轻量节点"
     echo ""
 
     read -p "$(get_text input_prompt)" choice
 
     case $choice in
         1) INSTALL_MODE="cdn_full" ;;
-        2) INSTALL_MODE="cdn_proxy" ;;
-        3) INSTALL_MODE="compute" ;;
+        2) INSTALL_MODE="compute" ;;
+        3) INSTALL_MODE="cdn_proxy" ;;
         4) INSTALL_MODE="light" ;;
         *) INSTALL_MODE=$(echo $mode_desc | sed 's/mode_//') ;;
     esac
 
     echo -e "${GREEN}  Selected: $INSTALL_MODE${NC}"
+
+    # 显示模式说明
+    case $INSTALL_MODE in
+        cdn_full)
+            echo -e "${CYAN}  Mode: Full CDN Node${NC}"
+            echo "    - 安装 swlm.cpp AI推理引擎"
+            echo "    - 安装 CDN 转发服务"
+            echo "    - 同时提供算力和API转发"
+            ;;
+        compute)
+            echo -e "${CYAN}  Mode: Compute Node${NC}"
+            echo "    - 安装 swlm.cpp AI推理引擎"
+            echo "    - 连接到CDN代理获取请求"
+            echo "    - 仅提供算力，无公网访问"
+            ;;
+        cdn_proxy)
+            echo -e "${CYAN}  Mode: CDN Proxy${NC}"
+            echo "    - 安装 CDN 转发服务"
+            echo "    - 转发请求到计算节点"
+            echo "    - 无本地AI推理"
+            ;;
+        light)
+            echo -e "${CYAN}  Mode: Light Node${NC}"
+            echo "    - 轻量级中继节点"
+            echo "    - 连接到其他CDN节点"
+            echo "    - 最小资源占用"
+            ;;
+    esac
 }
 
 # ============================================================
@@ -477,17 +774,24 @@ install_swlm() {
 install_cdn_service() {
     echo -e "\n${YELLOW}$(get_text installing_cdn)${NC}"
 
-    # 创建CDN服务配置
+    # 创建CDN服务配置 - 支持IPv4/IPv6双栈
     cat > "$CONFIG_DIR/cdn.conf" << EOF
 # CDN Network Configuration
 NODE_ID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
-PUBLIC_IP=$PUBLIC_IP
+PUBLIC_IPV4=$PUBLIC_IPV4
+PUBLIC_IPV6=$PUBLIC_IPV6
+HAS_IPV4=$HAS_PUBLIC_IPV4
+HAS_IPV6=$HAS_PUBLIC_IPV6
 CDN_PORT=$CDN_PORT
 API_PORT=$API_PORT
 INSTALL_MODE=$INSTALL_MODE
 ADMIN_TOKEN=$ADMIN_TOKEN
 MODEL_PATH=$MODEL_DIR
+PAGE_URL=$PAGE_URL
 EOF
+
+    echo -e "${GREEN}  IPv4: ${PUBLIC_IPV4:-None}${NC}"
+    echo -e "${GREEN}  IPv6: ${PUBLIC_IPV6:-None}${NC}"
 
     # 创建CDN服务脚本
     cat > "$INSTALL_DIR/cdn/server.sh" << 'CDNSERVER'
@@ -950,10 +1254,12 @@ show_status() {
     if [ -f "$CONFIG_DIR/cdn.conf" ]; then
         source "$CONFIG_DIR/cdn.conf"
         echo -e "Node ID: ${GREEN}$NODE_ID${NC}"
-        echo -e "Public IP: ${GREEN}${PUBLIC_IP:-N/A}${NC}"
+        echo -e "IPv4: ${GREEN}${PUBLIC_IPV4:-None}${NC}"
+        echo -e "IPv6: ${GREEN}${PUBLIC_IPV6:-None}${NC}"
         echo -e "Install Mode: ${GREEN}$INSTALL_MODE${NC}"
         echo -e "CDN Port: ${GREEN}$CDN_PORT${NC}"
         echo -e "API Port: ${GREEN}$API_PORT${NC}"
+        echo -e "Page URL: ${GREEN}$PAGE_URL${NC}"
     else
         echo -e "${RED}Not configured${NC}"
     fi
@@ -1002,12 +1308,35 @@ show_logs() {
 }
 
 list_cdn_servers() {
-    echo -e "\n${BLUE}=== CDN Servers ===${NC}"
-    echo -e "${YELLOW}Fetching from network...${NC}"
+    echo -e "\n${BLUE}=== CDN Servers from $PAGE_URL ===${NC}"
+    echo -e "${YELLOW}Fetching node list...${NC}"
 
-    curl -s "https://raw.githubusercontent.com/shenwenAI/Calculate-cdn.sh/main/cdn-list.json" 2>/dev/null | \
-        python3 -c "import sys,json; [print(f\"{s['name']}: {s['url']}\") for s in json.load(sys.stdin).get('servers',[])]" 2>/dev/null || \
-        echo -e "${RED}Failed to fetch CDN list${NC}"
+    local nodes=$(curl -s --max-time 10 "$PAGE_URL/api/nodes" 2>/dev/null)
+
+    if [ -n "$nodes" ]; then
+        echo "$nodes" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if isinstance(data, list):
+        for node in data:
+            ipv4 = node.get('ipv4', 'N/A')
+            ipv6 = node.get('ipv6', 'N/A')
+            mode = node.get('mode', 'unknown')
+            print(f\"  [{mode}] IPv4: {ipv4} | IPv6: {ipv6}\")
+    elif isinstance(data, dict) and 'nodes' in data:
+        for node in data['nodes']:
+            ipv4 = node.get('ipv4', 'N/A')
+            ipv6 = node.get('ipv6', 'N/A')
+            mode = node.get('mode', 'unknown')
+            print(f\"  [{mode}] IPv4: {ipv4} | IPv6: {ipv6}\")
+except:
+    print('Failed to parse node data')
+" 2>/dev/null || echo -e "${YELLOW}Raw data: $nodes${NC}"
+    else
+        echo -e "${RED}Failed to fetch node list${NC}"
+        echo -e "${CYAN}Visit $PAGE_URL for node information${NC}"
+    fi
 }
 
 case "${1:-status}" in
@@ -1096,7 +1425,8 @@ main_install() {
     echo -e "\n${YELLOW}$(get_text detecting_system)${NC}"
     check_dependencies
     detect_public_ip
-    detect_gpu
+    query_cdn_api  # 查询 CDN API 获取详细信息
+    detect_compute
 
     # 确定安装模式
     determine_install_mode
@@ -1160,6 +1490,13 @@ main_install() {
     create_management_script
     create_systemd_service
 
+    # 注册节点到网络
+    register_node
+
+    # 获取并显示节点列表
+    echo -e "\n${CYAN}$(get_text cdn_servers)${NC}"
+    fetch_node_list
+
     # 完成
     echo -e "\n${GREEN}$(get_text title)${NC}"
     echo -e "${GREEN}$(get_text install_complete)${NC}"
@@ -1167,13 +1504,19 @@ main_install() {
     echo ""
     echo -e "${CYAN}Management Script: ${GREEN}$INSTALL_DIR/cdn-manage.sh${NC}"
     echo -e "${CYAN}Web Panel: ${GREEN}http://localhost:8080${NC}"
+    echo -e "${CYAN}Node Page: ${GREEN}$PAGE_URL${NC}"
     echo -e "${CYAN}Admin Token: ${GREEN}$ADMIN_TOKEN${NC}"
+    echo ""
+    echo -e "${YELLOW}Network Info:${NC}"
+    echo -e "  IPv4: ${GREEN}${PUBLIC_IPV4:-None}${NC}"
+    echo -e "  IPv6: ${GREEN}${PUBLIC_IPV6:-None}${NC}"
     echo ""
     echo -e "${YELLOW}Usage:${NC}"
     echo "  $INSTALL_DIR/cdn-manage.sh start   # Start services"
     echo "  $INSTALL_DIR/cdn-manage.sh stop    # Stop services"
     echo "  $INSTALL_DIR/cdn-manage.sh status  # Check status"
     echo "  $INSTALL_DIR/cdn-manage.sh logs    # View logs"
+    echo "  $INSTALL_DIR/cdn-manage.sh servers # List CDN servers"
     echo ""
 }
 
