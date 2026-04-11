@@ -1433,11 +1433,28 @@ main_install() {
 
     # 确认安装
     echo ""
-    read -p "$(get_text confirm_install) (Y/N): " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]] && [ ! -z "$confirm" ]; then
-        echo -e "${RED}Installation cancelled${NC}"
-        exit 0
-    fi
+    echo -e "${CYAN}================================${NC}"
+    echo -e "${YELLOW}准备开始安装...${NC}"
+    echo -e "${CYAN}================================${NC}"
+    echo ""
+    echo -e "  请输入 ${GREEN}Y${NC} 确认安装，或 ${RED}N${NC} 取消"
+    echo -e "  Press ${GREEN}Y${NC} to confirm, or ${RED}N${NC} to cancel"
+    echo ""
+    read -p "Confirm? (Y/N): " confirm
+
+    case "$confirm" in
+        Y|y|"")
+            echo -e "${GREEN}Starting installation...${NC}"
+            ;;
+        N|n)
+            echo -e "${RED}Installation cancelled${NC}"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Invalid input. Installation cancelled.${NC}"
+            exit 1
+            ;;
+    esac
 
     # 生成管理员令牌
     ADMIN_TOKEN=$(openssl rand -base64 32 2>/dev/null || cat /proc/sys/kernel/random/uuid)
